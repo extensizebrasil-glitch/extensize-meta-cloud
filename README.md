@@ -8,6 +8,7 @@ Backend público da integração oficial com a API do Instagram, destinado à Ve
 - `/api/meta/config`: diagnóstico sem expor segredos.
 - `/api/meta/oauth/start`: inicia a autorização do Instagram.
 - `/api/meta/oauth/callback`: troca o código, criptografa e armazena o token.
+- `/api/meta/status`: verifica o token armazenado e a conta sem expor credenciais.
 - `/api/meta/webhook`: validação e recebimento futuro de eventos.
 
 ## Segurança
