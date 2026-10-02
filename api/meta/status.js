@@ -5,7 +5,9 @@ import { decryptJson } from '../../lib/security.js';
 export default async function handler(req, res) {
   try {
     requiredEnv(['TOKEN_ENCRYPTION_KEY', 'TOKEN_STORE_ID']);
-    const stored = await get('meta/instagram-token.enc', { access: 'private', storeId: process.env.TOKEN_STORE_ID, useCache: false });
+    const slot = req.query.slot === 'secondary' ? 'secondary' : 'primary';
+    const pathname = slot === 'secondary' ? 'meta/instagram-token-secondary.enc' : 'meta/instagram-token.enc';
+    const stored = await get(pathname, { access: 'private', storeId: process.env.TOKEN_STORE_ID, useCache: false });
     if (!stored || stored.statusCode !== 200 || !stored.stream) return json(res, 200, { connected: false, tokenStored: false });
     const encrypted = await new Response(stored.stream).text();
     const record = decryptJson(encrypted);

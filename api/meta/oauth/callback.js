@@ -1,12 +1,14 @@
 import { put } from '@vercel/blob';
 import { publicBaseUrl, requiredEnv } from '../../../lib/http.js';
-import { encryptJson, verifyOAuthState } from '../../../lib/security.js';
+import { encryptJson, readOAuthState } from '../../../lib/security.js';
 
 export default async function handler(req, res) {
   try {
     requiredEnv(['META_INSTAGRAM_APP_ID', 'META_INSTAGRAM_APP_SECRET', 'META_STATE_SECRET', 'TOKEN_ENCRYPTION_KEY', 'TOKEN_STORE_ID']);
     if (req.query.error) return res.status(400).end('Autorização cancelada no Instagram.');
-    if (!verifyOAuthState(req.query.state)) return res.status(400).end('Estado OAuth inválido ou expirado.');
+    const state = readOAuthState(req.query.state);
+    if (!state) return res.status(400).end('Estado OAuth inválido ou expirado.');
+    const slot = state.slot === 'secondary' ? 'secondary' : 'primary';
     const code = String(req.query.code || '');
     if (!code) return res.status(400).end('Código de autorização ausente.');
     const redirectUri = `${publicBaseUrl()}/api/meta/oauth/callback`;
@@ -36,9 +38,10 @@ export default async function handler(req, res) {
       expiresIn: longResponse.ok ? longToken.expires_in : null,
       connectedAt: new Date().toISOString()
     };
-    await put('meta/instagram-token.enc', encryptJson(record), { access: 'private', allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json', storeId: process.env.TOKEN_STORE_ID });
+    const tokenPath = slot === 'secondary' ? 'meta/instagram-token-secondary.enc' : 'meta/instagram-token.enc';
+    await put(tokenPath, encryptJson(record), { access: 'private', allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json', storeId: process.env.TOKEN_STORE_ID });
     res.status(200).setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.end('<!doctype html><meta charset="utf-8"><title>Extensize conectado</title><style>body{font:18px system-ui;background:#050805;color:#efffe8;display:grid;place-items:center;min-height:100vh}main{max-width:560px;padding:32px;border:1px solid #3c6;border-radius:18px}h1{color:#8cff2b}</style><main><h1>Instagram conectado</h1><p>O token foi armazenado de forma privada e criptografada. Você pode fechar esta página.</p></main>');
+    res.end(`<!doctype html><meta charset="utf-8"><title>Extensize conectado</title><style>body{font:18px system-ui;background:#050805;color:#efffe8;display:grid;place-items:center;min-height:100vh}main{max-width:560px;padding:32px;border:1px solid #3c6;border-radius:18px}h1{color:#8cff2b}</style><main><h1>Instagram conectado</h1><p>@${profile.username || profile.id} foi armazenado no espaço ${slot === 'secondary' ? 'secundário' : 'principal'}, de forma privada e criptografada. Você pode fechar esta página.</p></main>`);
   } catch (error) {
     console.error('OAuth callback failed:', error.message);
     res.status(500).end('Não foi possível concluir a conexão. Verifique a configuração do projeto.');
