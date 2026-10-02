@@ -24,9 +24,15 @@ export default async function handler(req, res) {
     longUrl.search = new URLSearchParams({ grant_type: 'ig_exchange_token', client_secret: process.env.META_INSTAGRAM_APP_SECRET, access_token: token.access_token });
     const longResponse = await fetch(longUrl);
     const longToken = await longResponse.json();
+    const accessToken = longResponse.ok && longToken.access_token ? longToken.access_token : token.access_token;
+    const profileUrl = new URL('https://graph.instagram.com/me');
+    profileUrl.search = new URLSearchParams({ fields: 'id,user_id,username,account_type', access_token: accessToken });
+    const profileResponse = await fetch(profileUrl);
+    const profile = await profileResponse.json();
+    if (!profileResponse.ok || !profile.id) throw new Error('Falha ao confirmar o perfil do Instagram');
     const record = {
-      instagramUserId: token.user_id,
-      accessToken: longResponse.ok && longToken.access_token ? longToken.access_token : token.access_token,
+      instagramUserId: profile.id,
+      accessToken,
       expiresIn: longResponse.ok ? longToken.expires_in : null,
       connectedAt: new Date().toISOString()
     };

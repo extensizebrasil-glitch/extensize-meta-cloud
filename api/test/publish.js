@@ -39,7 +39,13 @@ export default async function handler(req, res) {
 
     const [plan, auth] = await Promise.all([getCurrentPlan(), getInstagramToken()]);
     const first = plan?.items?.[0];
-    if (!plan || plan.status !== 'draft' || !first || !auth?.accessToken || !auth?.instagramUserId) throw new Error('Plano ou conexão do Instagram indisponível.');
+    if (!plan || plan.status !== 'draft' || !first || !auth?.accessToken) throw new Error('Plano ou conexão do Instagram indisponível.');
+    const profileUrl = new URL('https://graph.instagram.com/me');
+    profileUrl.search = new URLSearchParams({ fields: 'id,user_id,username,account_type', access_token: auth.accessToken });
+    const profileResponse = await fetch(profileUrl, { headers: { Accept: 'application/json' } });
+    const profile = await profileResponse.json();
+    if (!profileResponse.ok || !profile.id) throw new Error(profile.error?.message || 'Não foi possível confirmar o ID atual do Instagram.');
+    const instagramUserId = profile.id;
     const captionSlot = Number(first.captionSlot || 1);
     const caption = plan.captions?.[captionSlot - 1];
     if (!caption) throw new Error('Legenda do teste não encontrada.');
@@ -49,7 +55,7 @@ export default async function handler(req, res) {
 
     let state = previous;
     if (!state?.containerId) {
-      const created = await graph(`${auth.instagramUserId}/media`, auth.accessToken, { method: 'POST', body: { media_type: 'REELS', video_url: blob.url, caption, share_to_feed: 'true' } });
+      const created = await graph(`${instagramUserId}/media`, auth.accessToken, { method: 'POST', body: { media_type: 'REELS', video_url: blob.url, caption, share_to_feed: 'true' } });
       state = { stage: 'container_created', containerId: created.id, fileName: first.fileName, captionSlot, createdAt: new Date().toISOString() };
       await saveState(state);
     }
@@ -70,7 +76,7 @@ export default async function handler(req, res) {
       return json(res, 202, { ok: true, processing: true, containerId: state.containerId, status: status?.status_code || 'IN_PROGRESS' });
     }
 
-    const published = await graph(`${auth.instagramUserId}/media_publish`, auth.accessToken, { method: 'POST', body: { creation_id: state.containerId } });
+    const published = await graph(`${instagramUserId}/media_publish`, auth.accessToken, { method: 'POST', body: { creation_id: state.containerId } });
     const receipt = { ...state, stage: 'published', mediaId: published.id, publishedAt: new Date().toISOString(), cleanupComplete: false };
     await saveState(receipt);
     try {
