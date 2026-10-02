@@ -16,6 +16,8 @@ function validate(body) {
   if (body.endDate < body.startDate) throw new Error('A data final deve ser igual ou posterior à inicial.');
   const postsPerDay = Number(body.postsPerDay);
   if (!Number.isInteger(postsPerDay) || postsPerDay < 1 || postsPerDay > 5) throw new Error('Quantidade diária inválida.');
+  const defaultCaption = String(body.defaultCaption || '').trim();
+  if (defaultCaption.length > 2200) throw new Error('A legenda deve ter no máximo 2.200 caracteres.');
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 304) throw new Error('Lista de vídeos inválida.');
   const names = new Set();
   const items = body.items.map((item, index) => {
@@ -26,7 +28,7 @@ function validate(body) {
     names.add(fileName);
     return { order: index + 1, fileName, date: item.date, time: item.time, status: 'draft' };
   });
-  return { startDate: body.startDate, endDate: body.endDate, postsPerDay, items };
+  return { startDate: body.startDate, endDate: body.endDate, postsPerDay, defaultCaption, items };
 }
 
 export default async function handler(req, res) {
