@@ -27,5 +27,5 @@ async function cloudLibrary() {
 
 export default async function handler(req, res) {
   const [instagram, cloud] = await Promise.all([instagramSummary(), cloudLibrary()]);
-  return json(res, 200, { ok: true, mode: 'configuration_only', publishingEnabled: false, schedulingEnabled: false, uploadsEnabled: false, instagram, library: { ...LOCAL_LIBRARY, cloud }, updatedAt: new Date().toISOString() });
+  return json(res, 200, { ok: true, mode: 'configuration_only', publishingEnabled: false, schedulingEnabled: false, uploadsEnabled: false, uploadStrategy: 'temporary_on_demand', instagram, library: { ...LOCAL_LIBRARY, cloud }, updatedAt: new Date().toISOString() });
 }
