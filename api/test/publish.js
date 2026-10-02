@@ -1,7 +1,7 @@
 import { del, get, head, put } from '@vercel/blob';
 import { json, publicBaseUrl } from '../../lib/http.js';
 import { getInstagramToken } from '../../lib/meta-store.js';
-import { getCurrentPlan } from '../../lib/plan-store.js';
+import { getCurrentPlan, saveCurrentPlan } from '../../lib/plan-store.js';
 
 const STATE_PATH = 'tests/official-reel-state.json';
 const CONFIRMATION = 'Autorizo publicar o Reel de teste.';
@@ -17,6 +17,14 @@ async function getState() {
 
 async function saveState(state) {
   await put(STATE_PATH, JSON.stringify(state), { access: 'private', storeId: process.env.TOKEN_STORE_ID, allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json' });
+}
+
+async function markPlanPublished(receipt) {
+  const plan = await getCurrentPlan();
+  if (!plan?.items?.[0]) return;
+  plan.items[0] = { ...plan.items[0], status: 'published', mediaId: receipt.mediaId, publishedAt: receipt.publishedAt };
+  plan.updatedAt = new Date().toISOString();
+  await saveCurrentPlan(plan);
 }
 
 async function graph(path, token, options = {}) {
@@ -35,7 +43,10 @@ export default async function handler(req, res) {
     if (String(req.body?.confirmation || '') !== CONFIRMATION) return json(res, 403, { ok: false, error: 'Confirmação final inválida.' });
 
     const previous = await getState();
-    if (previous?.stage === 'published') return json(res, 200, { ok: true, alreadyPublished: true, mediaId: previous.mediaId, publishedAt: previous.publishedAt, cleanupComplete: previous.cleanupComplete });
+    if (previous?.stage === 'published') {
+      await markPlanPublished(previous);
+      return json(res, 200, { ok: true, alreadyPublished: true, mediaId: previous.mediaId, publishedAt: previous.publishedAt, cleanupComplete: previous.cleanupComplete });
+    }
 
     const [plan, auth] = await Promise.all([getCurrentPlan(), getInstagramToken()]);
     const first = plan?.items?.[0];
@@ -79,6 +90,7 @@ export default async function handler(req, res) {
     const published = await graph(`${instagramUserId}/media_publish`, auth.accessToken, { method: 'POST', body: { creation_id: state.containerId } });
     const receipt = { ...state, stage: 'published', mediaId: published.id, publishedAt: new Date().toISOString(), cleanupComplete: false };
     await saveState(receipt);
+    await markPlanPublished(receipt);
     try {
       await del(pathname, { access: 'public', storeId: process.env.VIDEO_STORE_ID });
       receipt.cleanupComplete = true;
