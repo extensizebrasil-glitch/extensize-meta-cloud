@@ -1,0 +1,30 @@
+name: Extensize Cloud Publisher
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 1 * * *'
+    - cron: '0 9 * * *'
+    - cron: '0 13 * * *'
+    - cron: '0 17 * * *'
+    - cron: '0 21 * * *'
+
+concurrency:
+  group: extensize-cloud-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Link protected Vercel project
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: npx --yes vercel@62.1.0 link --yes --project extensize-meta-cloud --scope extensize-brasil --token "$VERCEL_TOKEN"
+      - name: Publish item in current window
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          printf '%s' '{"confirmation":"Executar próximo horário da fila Extensize na nuvem."}' > request.json
+          npx --yes vercel@62.1.0 curl /api/test/publish --scope extensize-brasil -- --request POST --header 'Content-Type: application/json' --data-binary @request.json
