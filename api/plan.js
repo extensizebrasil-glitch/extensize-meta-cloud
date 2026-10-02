@@ -16,8 +16,11 @@ function validate(body) {
   if (body.endDate < body.startDate) throw new Error('A data final deve ser igual ou posterior à inicial.');
   const postsPerDay = Number(body.postsPerDay);
   if (!Number.isInteger(postsPerDay) || postsPerDay < 1 || postsPerDay > 5) throw new Error('Quantidade diária inválida.');
-  const defaultCaption = String(body.defaultCaption || '').trim();
-  if (defaultCaption.length > 2200) throw new Error('A legenda deve ter no máximo 2.200 caracteres.');
+  if (!Array.isArray(body.captions) || body.captions.length !== 5) throw new Error('Cadastre exatamente cinco legendas.');
+  const captions = body.captions.map(value => String(value || '').trim());
+  if (captions.some(value => !value)) throw new Error('Preencha as cinco legendas.');
+  if (captions.some(value => value.length > 2200)) throw new Error('Cada legenda deve ter no máximo 2.200 caracteres.');
+  if (new Set(captions.map(value => value.toLocaleLowerCase('pt-BR'))).size !== 5) throw new Error('As cinco legendas devem ser diferentes.');
   if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 304) throw new Error('Lista de vídeos inválida.');
   const names = new Set();
   const items = body.items.map((item, index) => {
@@ -26,9 +29,9 @@ function validate(body) {
     if (!DATE_PATTERN.test(item.date || '') || item.date < body.startDate || item.date > body.endDate) throw new Error('Data de item inválida.');
     if (!ALLOWED_TIMES.has(item.time)) throw new Error('Horário inválido.');
     names.add(fileName);
-    return { order: index + 1, fileName, date: item.date, time: item.time, status: 'draft' };
+    return { order: index + 1, fileName, date: item.date, time: item.time, captionSlot: (index % 5) + 1, status: 'draft' };
   });
-  return { startDate: body.startDate, endDate: body.endDate, postsPerDay, defaultCaption, items };
+  return { startDate: body.startDate, endDate: body.endDate, postsPerDay, captions, captionRotation: 'sequential', items };
 }
 
 export default async function handler(req, res) {
