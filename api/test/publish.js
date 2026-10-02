@@ -5,24 +5,26 @@ import { getCurrentPlan, saveCurrentPlan } from '../../lib/plan-store.js';
 
 const STATE_PATH = 'tests/official-reel-state.json';
 const CONFIRMATION = 'Autorizo publicar o Reel de teste.';
+const AUTOMATION_CONFIRMATION = 'Ativar e executar a fila automática Extensize.';
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-async function getState() {
+async function getState(statePath = STATE_PATH) {
   try {
-    const stored = await get(STATE_PATH, { access: 'private', storeId: process.env.TOKEN_STORE_ID, useCache: false });
+    const stored = await get(statePath, { access: 'private', storeId: process.env.TOKEN_STORE_ID, useCache: false });
     if (!stored || stored.statusCode !== 200 || !stored.stream) return null;
     return JSON.parse(await new Response(stored.stream).text());
   } catch { return null; }
 }
 
-async function saveState(state) {
-  await put(STATE_PATH, JSON.stringify(state), { access: 'private', storeId: process.env.TOKEN_STORE_ID, allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json' });
+async function saveState(state, statePath = STATE_PATH) {
+  await put(statePath, JSON.stringify(state), { access: 'private', storeId: process.env.TOKEN_STORE_ID, allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json' });
 }
 
-async function markPlanPublished(receipt) {
+async function markPlanPublished(receipt, order = 1) {
   const plan = await getCurrentPlan();
-  if (!plan?.items?.[0]) return;
-  plan.items[0] = { ...plan.items[0], status: 'published', mediaId: receipt.mediaId, publishedAt: receipt.publishedAt };
+  const index = plan?.items?.findIndex(item => item.order === order);
+  if (index == null || index < 0) return;
+  plan.items[index] = { ...plan.items[index], status: 'published', mediaId: receipt.mediaId, publishedAt: receipt.publishedAt };
   plan.updatedAt = new Date().toISOString();
   await saveCurrentPlan(plan);
 }
@@ -40,17 +42,28 @@ export default async function handler(req, res) {
     const origin = String(req.headers.origin || '').replace(/\/$/, '');
     const expectedOrigin = publicBaseUrl();
     if (origin && expectedOrigin && origin !== expectedOrigin) return json(res, 403, { ok: false, error: 'Origem não autorizada.' });
-    if (String(req.body?.confirmation || '') !== CONFIRMATION) return json(res, 403, { ok: false, error: 'Confirmação final inválida.' });
+    const automationRequest = String(req.body?.confirmation || '') === AUTOMATION_CONFIRMATION;
+    if (!automationRequest && String(req.body?.confirmation || '') !== CONFIRMATION) return json(res, 403, { ok: false, error: 'Confirmação final inválida.' });
+    const order = automationRequest ? Number(req.body?.order) : 1;
+    const statePath = automationRequest ? `automation/items/${String(order).padStart(4, '0')}.json` : STATE_PATH;
 
-    const previous = await getState();
+    const previous = await getState(statePath);
     if (previous?.stage === 'published') {
-      await markPlanPublished(previous);
+      await markPlanPublished(previous, order);
       return json(res, 200, { ok: true, alreadyPublished: true, mediaId: previous.mediaId, publishedAt: previous.publishedAt, cleanupComplete: previous.cleanupComplete });
     }
 
     const [plan, auth] = await Promise.all([getCurrentPlan(), getInstagramToken()]);
-    const first = plan?.items?.[0];
+    const first = automationRequest ? plan?.items?.find(item => item.order === order) : plan?.items?.[0];
     if (!plan || plan.status !== 'draft' || !first || !auth?.accessToken) throw new Error('Plano ou conexão do Instagram indisponível.');
+    if (automationRequest) {
+      if (!plan.automation?.active) throw new Error('Automação não está ativa.');
+      if (first.status === 'published') throw new Error('Item já publicado.');
+      if (String(req.body?.fileName || '') !== first.fileName) throw new Error('Arquivo não corresponde ao item da fila.');
+      const scheduled = new Date(`${first.date}T${first.time}:00-03:00`).getTime();
+      const delay = Date.now() - scheduled;
+      if (delay < 0 || delay > 15 * 60 * 1000) throw new Error('Item fora da janela autorizada de publicação.');
+    }
     const profileUrl = new URL('https://graph.instagram.com/me');
     profileUrl.search = new URLSearchParams({ fields: 'id,user_id,username,account_type', access_token: auth.accessToken });
     const profileResponse = await fetch(profileUrl, { headers: { Accept: 'application/json' } });
@@ -60,7 +73,7 @@ export default async function handler(req, res) {
     const captionSlot = Number(first.captionSlot || 1);
     const caption = plan.captions?.[captionSlot - 1];
     if (!caption) throw new Error('Legenda do teste não encontrada.');
-    const pathname = `temporary/official-test/${first.fileName}`;
+    const pathname = automationRequest ? `temporary/automation/${String(first.order).padStart(4, '0')}-${first.fileName}` : `temporary/official-test/${first.fileName}`;
     const blob = await head(pathname, { access: 'public', storeId: process.env.VIDEO_STORE_ID });
     if (blob.contentType !== 'video/mp4' || Number(blob.size) > 25 * 1024 * 1024) throw new Error('Vídeo temporário inválido.');
 
@@ -68,7 +81,7 @@ export default async function handler(req, res) {
     if (!state?.containerId) {
       const created = await graph(`${instagramUserId}/media`, auth.accessToken, { method: 'POST', body: { media_type: 'REELS', video_url: blob.url, caption, share_to_feed: 'true' } });
       state = { stage: 'container_created', containerId: created.id, fileName: first.fileName, captionSlot, createdAt: new Date().toISOString() };
-      await saveState(state);
+      await saveState(state, statePath);
     }
 
     let status;
@@ -83,18 +96,18 @@ export default async function handler(req, res) {
       await wait(3000);
     }
     if (status?.status_code !== 'FINISHED') {
-      await saveState({ ...state, stage: 'processing', lastStatus: status?.status_code || 'IN_PROGRESS', checkedAt: new Date().toISOString() });
+      await saveState({ ...state, stage: 'processing', lastStatus: status?.status_code || 'IN_PROGRESS', checkedAt: new Date().toISOString() }, statePath);
       return json(res, 202, { ok: true, processing: true, containerId: state.containerId, status: status?.status_code || 'IN_PROGRESS' });
     }
 
     const published = await graph(`${instagramUserId}/media_publish`, auth.accessToken, { method: 'POST', body: { creation_id: state.containerId } });
     const receipt = { ...state, stage: 'published', mediaId: published.id, publishedAt: new Date().toISOString(), cleanupComplete: false };
-    await saveState(receipt);
-    await markPlanPublished(receipt);
+    await saveState(receipt, statePath);
+    await markPlanPublished(receipt, order);
     try {
       await del(pathname, { access: 'public', storeId: process.env.VIDEO_STORE_ID });
       receipt.cleanupComplete = true;
-      await saveState(receipt);
+      await saveState(receipt, statePath);
     } catch {}
     return json(res, 200, { ok: true, published: true, mediaId: receipt.mediaId, publishedAt: receipt.publishedAt, cleanupComplete: receipt.cleanupComplete });
   } catch (error) {

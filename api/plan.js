@@ -6,6 +6,7 @@ const ALLOWED_TIMES = new Set(['06:00', '10:00', '14:00', '18:00', '22:00']);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const HOURS = ['06:00', '10:00', '14:00', '18:00', '22:00'];
 const REBASE_CONFIRMATION = 'Preparar fila restante a partir de 2026-10-02 18:00';
+const ACTIVATE_CONFIRMATION = 'Ativar e executar a fila automática Extensize.';
 
 function parseBody(req) {
   if (req.body && typeof req.body === 'object') return req.body;
@@ -66,6 +67,17 @@ async function rebaseRemaining(body) {
   return { ok: true, active: false, pending: pending.length, first: pending[0] ? { order: pending[0].order, fileName: pending[0].fileName, date: pending[0].date, time: pending[0].time, captionSlot: pending[0].captionSlot } : null, last: pending.at(-1) ? { order: pending.at(-1).order, date: pending.at(-1).date, time: pending.at(-1).time } : null };
 }
 
+async function setAutomation(body) {
+  if (String(body?.confirmation || '') !== ACTIVATE_CONFIRMATION) throw new Error('Confirmação inválida.');
+  const stored = await get(PLAN_PATH, { access: 'private', storeId: process.env.TOKEN_STORE_ID, useCache: false });
+  if (!stored || stored.statusCode !== 200 || !stored.stream) throw new Error('Plano não encontrado.');
+  const plan = JSON.parse(await new Response(stored.stream).text());
+  plan.automation = { active: body.active === true, mode: body.active === true ? 'automatic' : 'paused', timeZone: 'America/Sao_Paulo', changedAt: new Date().toISOString() };
+  plan.updatedAt = plan.automation.changedAt;
+  await put(PLAN_PATH, JSON.stringify(plan), { access: 'private', storeId: process.env.TOKEN_STORE_ID, allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json' });
+  return { ok: true, automation: plan.automation };
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method === 'GET') {
@@ -79,6 +91,7 @@ export default async function handler(req, res) {
     if (origin && expectedOrigin && origin !== expectedOrigin) return json(res, 403, { ok: false, error: 'Origem não autorizada.' });
     const body = parseBody(req);
     if (body?.action === 'rebaseRemaining') return json(res, 200, await rebaseRemaining(body));
+    if (body?.action === 'setAutomation') return json(res, 200, await setAutomation(body));
     const data = validate(body);
     const now = new Date().toISOString();
     const plan = { version: 1, status: 'draft', createdAt: now, updatedAt: now, ...data, locks: { publishing: true, scheduling: true, permanentStorage: true } };
