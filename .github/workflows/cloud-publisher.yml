@@ -3,7 +3,8 @@ name: Extensize Cloud Publisher
 on:
   workflow_dispatch:
   schedule:
-    - cron: '5 * * * *'
+    - cron: '17 * * * *'
+    - cron: '47 * * * *'
 
 concurrency:
   group: extensize-cloud-publisher
