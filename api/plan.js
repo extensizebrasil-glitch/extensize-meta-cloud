@@ -5,7 +5,7 @@ const PLAN_PATH = 'planning/current-draft.json';
 const ALLOWED_TIMES = new Set(['06:00', '10:00', '14:00', '18:00', '22:00']);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const HOURS = ['06:00', '10:00', '14:00', '18:00', '22:00'];
-const REBASE_CONFIRMATION = 'Preparar fila restante a partir de 2026-10-02 18:00';
+const REBASE_CONFIRMATION = 'Redistribuir fila restante a partir de 2026-10-03 18:00';
 const ACTIVATE_CONFIRMATION = 'Ativar e executar a fila automática Extensize.';
 
 function parseBody(req) {
@@ -47,7 +47,7 @@ async function rebaseRemaining(body) {
   if (!stored || stored.statusCode !== 200 || !stored.stream) throw new Error('Plano não encontrado.');
   const plan = JSON.parse(await new Response(stored.stream).text());
   const pending = plan.items.filter(item => item.status !== 'published').sort((a, b) => a.order - b.order);
-  const startDay = new Date(Date.UTC(2026, 9, 2));
+  const startDay = new Date(Date.UTC(2026, 9, 3));
   const startIndex = HOURS.indexOf('18:00');
   pending.forEach((item, index) => {
     const slot = startIndex + index;
@@ -57,11 +57,11 @@ async function rebaseRemaining(body) {
     item.time = HOURS[slot % HOURS.length];
     item.status = 'draft';
   });
-  plan.startDate = '2026-10-02';
+  plan.startDate = '2026-10-03';
   plan.endDate = pending.at(-1)?.date || plan.endDate;
   plan.updatedAt = new Date().toISOString();
   plan.rebasedAt = plan.updatedAt;
-  plan.rebaseRule = { preserveOrder: true, catchUpBurst: false, firstPendingSlot: '2026-10-02T18:00:00-03:00' };
+  plan.rebaseRule = { preserveOrder: true, catchUpBurst: false, firstPendingSlot: '2026-10-03T18:00:00-03:00' };
   plan.automation = { active: false, mode: 'prepared', timeZone: 'America/Sao_Paulo' };
   await put(PLAN_PATH, JSON.stringify(plan), { access: 'private', storeId: process.env.TOKEN_STORE_ID, allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json' });
   return { ok: true, active: false, pending: pending.length, first: pending[0] ? { order: pending[0].order, fileName: pending[0].fileName, date: pending[0].date, time: pending[0].time, captionSlot: pending[0].captionSlot } : null, last: pending.at(-1) ? { order: pending.at(-1).order, date: pending.at(-1).date, time: pending.at(-1).time } : null };

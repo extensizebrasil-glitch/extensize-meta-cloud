@@ -47,7 +47,7 @@ export default async function handler(req, res) {
     const automationRequest = cloudRequest || String(req.body?.confirmation || '') === AUTOMATION_CONFIRMATION;
     if (!automationRequest && String(req.body?.confirmation || '') !== CONFIRMATION) return json(res, 403, { ok: false, error: 'Confirmação final inválida.' });
     const initialPlan = automationRequest ? await getCurrentPlan() : null;
-    const dueItem = cloudRequest ? initialPlan?.items?.filter(item => item.status !== 'published' && Date.now() >= new Date(`${item.date}T${item.time}:00-03:00`).getTime() && Date.now() - new Date(`${item.date}T${item.time}:00-03:00`).getTime() <= 15 * 60 * 1000).sort((a, b) => a.order - b.order)[0] : null;
+    const dueItem = cloudRequest ? initialPlan?.items?.filter(item => item.status !== 'published' && Date.now() >= new Date(`${item.date}T${item.time}:00-03:00`).getTime() && Date.now() - new Date(`${item.date}T${item.time}:00-03:00`).getTime() <= 210 * 60 * 1000).sort((a, b) => a.order - b.order)[0] : null;
     if (cloudRequest && !dueItem) return json(res, 200, { ok: true, published: false, reason: 'Nenhum item dentro da janela atual.' });
     const order = automationRequest ? Number(cloudRequest ? dueItem.order : req.body?.order) : 1;
     const statePath = automationRequest ? `automation/items/${String(order).padStart(4, '0')}.json` : STATE_PATH;
@@ -67,7 +67,7 @@ export default async function handler(req, res) {
       if (!cloudRequest && String(req.body?.fileName || '') !== first.fileName) throw new Error('Arquivo não corresponde ao item da fila.');
       const scheduled = new Date(`${first.date}T${first.time}:00-03:00`).getTime();
       const delay = Date.now() - scheduled;
-      if (delay < 0 || delay > 15 * 60 * 1000) throw new Error('Item fora da janela autorizada de publicação.');
+      if (delay < 0 || delay > 210 * 60 * 1000) throw new Error('Item fora da janela autorizada de publicação.');
     }
     const profileUrl = new URL('https://graph.instagram.com/me');
     profileUrl.search = new URLSearchParams({ fields: 'id,user_id,username,account_type', access_token: auth.accessToken });
