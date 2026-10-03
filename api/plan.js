@@ -72,7 +72,7 @@ async function setAutomation(body) {
   const stored = await get(PLAN_PATH, { access: 'private', storeId: process.env.TOKEN_STORE_ID, useCache: false });
   if (!stored || stored.statusCode !== 200 || !stored.stream) throw new Error('Plano não encontrado.');
   const plan = JSON.parse(await new Response(stored.stream).text());
-  plan.automation = { active: body.active === true, mode: body.active === true ? 'automatic' : 'paused', timeZone: 'America/Sao_Paulo', changedAt: new Date().toISOString() };
+  plan.automation = { active: body.active === true, mode: body.active === true ? 'automatic' : 'paused', timeZone: 'America/Sao_Paulo', catchUp: { enabled: true, intervalMinutes: 60, maxPerRun: 1, oldestFirst: true }, changedAt: new Date().toISOString() };
   plan.updatedAt = plan.automation.changedAt;
   await put(PLAN_PATH, JSON.stringify(plan), { access: 'private', storeId: process.env.TOKEN_STORE_ID, allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json' });
   return { ok: true, automation: plan.automation };

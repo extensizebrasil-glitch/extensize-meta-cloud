@@ -47,8 +47,11 @@ export default async function handler(req, res) {
     const automationRequest = cloudRequest || String(req.body?.confirmation || '') === AUTOMATION_CONFIRMATION;
     if (!automationRequest && String(req.body?.confirmation || '') !== CONFIRMATION) return json(res, 403, { ok: false, error: 'Confirmação final inválida.' });
     const initialPlan = automationRequest ? await getCurrentPlan() : null;
-    const dueItem = cloudRequest ? initialPlan?.items?.filter(item => item.status !== 'published' && Date.now() >= new Date(`${item.date}T${item.time}:00-03:00`).getTime() && Date.now() - new Date(`${item.date}T${item.time}:00-03:00`).getTime() <= 210 * 60 * 1000).sort((a, b) => a.order - b.order)[0] : null;
-    if (cloudRequest && !dueItem) return json(res, 200, { ok: true, published: false, reason: 'Nenhum item dentro da janela atual.' });
+    const lastPublishedAt = cloudRequest ? initialPlan?.items?.filter(item => item.status === 'published' && item.publishedAt).map(item => new Date(item.publishedAt).getTime()).sort((a, b) => b - a)[0] : null;
+    const recoveryWait = lastPublishedAt ? Date.now() - lastPublishedAt : Infinity;
+    if (cloudRequest && recoveryWait < 55 * 60 * 1000) return json(res, 200, { ok: true, published: false, reason: 'Intervalo mínimo entre publicações ainda não concluído.', retryAfterMinutes: Math.ceil((55 * 60 * 1000 - recoveryWait) / 60000) });
+    const dueItem = cloudRequest ? initialPlan?.items?.filter(item => item.status !== 'published' && Date.now() >= new Date(`${item.date}T${item.time}:00-03:00`).getTime()).sort((a, b) => new Date(`${a.date}T${a.time}:00-03:00`) - new Date(`${b.date}T${b.time}:00-03:00`) || a.order - b.order)[0] : null;
+    if (cloudRequest && !dueItem) return json(res, 200, { ok: true, published: false, reason: 'Nenhum item vencido na fila.' });
     const order = automationRequest ? Number(cloudRequest ? dueItem.order : req.body?.order) : 1;
     const statePath = automationRequest ? `automation/items/${String(order).padStart(4, '0')}.json` : STATE_PATH;
 
@@ -67,7 +70,7 @@ export default async function handler(req, res) {
       if (!cloudRequest && String(req.body?.fileName || '') !== first.fileName) throw new Error('Arquivo não corresponde ao item da fila.');
       const scheduled = new Date(`${first.date}T${first.time}:00-03:00`).getTime();
       const delay = Date.now() - scheduled;
-      if (delay < 0 || delay > 210 * 60 * 1000) throw new Error('Item fora da janela autorizada de publicação.');
+      if (delay < 0) throw new Error('Item ainda não atingiu o horário autorizado.');
     }
     const profileUrl = new URL('https://graph.instagram.com/me');
     profileUrl.search = new URLSearchParams({ fields: 'id,user_id,username,account_type', access_token: auth.accessToken });
