@@ -12,8 +12,7 @@ export default function handler(req, res) {
       response_type: 'code',
       scope: 'instagram_business_basic,instagram_business_content_publish',
       state: createOAuthState({ slot }),
-      enable_fb_login: '0',
-      force_authentication: '1'
+      enable_fb_login: '0'
     });
     res.statusCode = 302;
     res.setHeader('Location', `https://www.instagram.com/oauth/authorize?${params}`);
