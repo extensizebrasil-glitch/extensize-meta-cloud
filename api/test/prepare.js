@@ -4,6 +4,7 @@ import { getCurrentPlan } from '../../lib/plan-store.js';
 
 const MAX_TEST_BYTES = 25 * 1024 * 1024;
 const AUTOMATION_CONFIRMATION = 'Ativar e executar a fila automática Extensize.';
+const PROVISION_CONFIRMATION = 'Preparar biblioteca Dosis de Animo sem publicar.';
 
 export default async function handler(req, res) {
   try {
@@ -12,9 +13,11 @@ export default async function handler(req, res) {
     const expectedOrigin = publicBaseUrl();
     if (origin && expectedOrigin && origin !== expectedOrigin) return json(res, 403, { ok: false, error: 'Origem não autorizada.' });
     const plan = await getCurrentPlan();
+    const provisioningRequest = req.body?.confirmation === PROVISION_CONFIRMATION;
     const automationRequest = req.body?.confirmation === AUTOMATION_CONFIRMATION;
-    if (automationRequest && req.body?.storage === 'persistent' && Array.isArray(req.body?.orders)) {
-      if (!plan?.automation?.active) throw new Error('Automação não está ativa.');
+    if ((automationRequest || provisioningRequest) && req.body?.storage === 'persistent' && Array.isArray(req.body?.orders)) {
+      if (!provisioningRequest && !plan?.automation?.active) throw new Error('Automação não está ativa.');
+      if (provisioningRequest && plan?.accountSlot !== 'secondary') throw new Error('O provisionamento está restrito ao plano secundário.');
       const orders = [...new Set(req.body.orders.map(Number))].slice(0, 20);
       const selected = orders.map(order => plan.items.find(item => item.order === order && item.status !== 'published')).filter(Boolean);
       if (!selected.length) throw new Error('Nenhum item válido para envio.');

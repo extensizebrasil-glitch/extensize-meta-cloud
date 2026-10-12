@@ -24,7 +24,7 @@ function validate(body) {
   if (captions.some(value => !value)) throw new Error('Preencha as cinco legendas.');
   if (captions.some(value => value.length > 2200)) throw new Error('Cada legenda deve ter no máximo 2.200 caracteres.');
   if (new Set(captions.map(value => value.toLocaleLowerCase('pt-BR'))).size !== 5) throw new Error('As cinco legendas devem ser diferentes.');
-  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 304) throw new Error('Lista de vídeos inválida.');
+  if (!Array.isArray(body.items) || body.items.length < 1 || body.items.length > 306) throw new Error('Lista de vídeos inválida.');
   const names = new Set();
   const items = body.items.map((item, index) => {
     const fileName = String(item.fileName || '');
@@ -34,7 +34,9 @@ function validate(body) {
     names.add(fileName);
     return { order: index + 1, fileName, date: item.date, time: item.time, captionSlot: (index % 5) + 1, status: 'draft' };
   });
-  return { startDate: body.startDate, endDate: body.endDate, postsPerDay, captions, captionRotation: 'sequential', items };
+  const accountSlot = body.accountSlot === 'secondary' ? 'secondary' : 'primary';
+  const instagramUsername = String(body.instagramUsername || '').replace(/^@/, '').trim();
+  return { accountSlot, instagramUsername, startDate: body.startDate, endDate: body.endDate, postsPerDay, captions, captionRotation: 'sequential', items };
 }
 
 function dateText(date) {

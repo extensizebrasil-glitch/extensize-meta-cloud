@@ -53,7 +53,8 @@ export default async function handler(req, res) {
     const dueItem = cloudRequest ? initialPlan?.items?.filter(item => item.status !== 'published' && Date.now() >= new Date(`${item.date}T${item.time}:00-03:00`).getTime()).sort((a, b) => new Date(`${a.date}T${a.time}:00-03:00`) - new Date(`${b.date}T${b.time}:00-03:00`) || a.order - b.order)[0] : null;
     if (cloudRequest && !dueItem) return json(res, 200, { ok: true, published: false, reason: 'Nenhum item vencido na fila.' });
     const order = automationRequest ? Number(cloudRequest ? dueItem.order : req.body?.order) : 1;
-    const statePath = automationRequest ? `automation/items/${String(order).padStart(4, '0')}.json` : STATE_PATH;
+    const queueKey = String(initialPlan?.instagramUsername || initialPlan?.accountSlot || 'primary').replace(/[^a-z0-9_-]/gi, '').toLowerCase();
+    const statePath = automationRequest ? `automation/${queueKey}/items/${String(order).padStart(4, '0')}.json` : STATE_PATH;
 
     const previous = await getState(statePath);
     if (previous?.stage === 'published') {
@@ -61,7 +62,8 @@ export default async function handler(req, res) {
       return json(res, 200, { ok: true, alreadyPublished: true, mediaId: previous.mediaId, publishedAt: previous.publishedAt, cleanupComplete: previous.cleanupComplete });
     }
 
-    const [plan, auth] = await Promise.all([initialPlan || getCurrentPlan(), getInstagramToken()]);
+    const plan = initialPlan || await getCurrentPlan();
+    const auth = await getInstagramToken(plan?.accountSlot === 'secondary' ? 'secondary' : 'primary');
     const first = automationRequest ? plan?.items?.find(item => item.order === order) : plan?.items?.[0];
     if (!plan || plan.status !== 'draft' || !first || !auth?.accessToken) throw new Error('Plano ou conexão do Instagram indisponível.');
     if (automationRequest) {
@@ -77,6 +79,7 @@ export default async function handler(req, res) {
     const profileResponse = await fetch(profileUrl, { headers: { Accept: 'application/json' } });
     const profile = await profileResponse.json();
     if (!profileResponse.ok || !profile.id) throw new Error(profile.error?.message || 'Não foi possível confirmar o ID atual do Instagram.');
+    if (plan.instagramUsername && String(profile.username || '').toLowerCase() !== String(plan.instagramUsername).toLowerCase()) throw new Error(`Conta conectada @${profile.username || 'desconhecida'} não corresponde ao plano @${plan.instagramUsername}.`);
     const instagramUserId = profile.id;
     const captionSlot = Number(first.captionSlot || 1);
     const caption = plan.captions?.[captionSlot - 1];
