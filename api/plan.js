@@ -1,4 +1,4 @@
-import { get, put } from '@vercel/blob';
+import { del, get, list, put } from '@vercel/blob';
 import { json, publicBaseUrl } from '../lib/http.js';
 
 const PLAN_PATH = 'planning/current-draft.json';
@@ -7,6 +7,7 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const HOURS = ['06:00', '10:00', '14:00', '18:00', '22:00'];
 const REBASE_CONFIRMATION = 'Redistribuir fila restante a partir de 2026-10-03 18:00';
 const ACTIVATE_CONFIRMATION = 'Ativar e executar a fila automática Extensize.';
+const PRUNE_MAGNATE_CONFIRMATION = 'Remover biblioteca Magnate e priorizar Dosis de Animo.';
 
 function parseBody(req) {
   if (req.body && typeof req.body === 'object') return req.body;
@@ -80,6 +81,24 @@ async function setAutomation(body) {
   return { ok: true, automation: plan.automation };
 }
 
+async function pruneMagnateLibrary(body) {
+  if (String(body?.confirmation || '') !== PRUNE_MAGNATE_CONFIRMATION) throw new Error('Confirmação inválida.');
+  let cursor;
+  let removed = 0;
+  let bytes = 0;
+  do {
+    const result = await list({ access: 'public', storeId: process.env.VIDEO_STORE_ID, prefix: 'reels/', limit: 1000, cursor });
+    const magnate = result.blobs.filter(blob => blob.pathname.toLowerCase().endsWith('.mp4') && !blob.pathname.split('/').at(-1).startsWith('dosisdeanimoo-'));
+    if (magnate.length) {
+      await del(magnate.map(blob => blob.url), { access: 'public', storeId: process.env.VIDEO_STORE_ID });
+      removed += magnate.length;
+      bytes += magnate.reduce((total, blob) => total + Number(blob.size || 0), 0);
+    }
+    cursor = result.hasMore ? result.cursor : undefined;
+  } while (cursor);
+  return { ok: true, removed, bytes, preservedPrefix: 'dosisdeanimoo-' };
+}
+
 export default async function handler(req, res) {
   try {
     if (req.method === 'GET') {
@@ -94,6 +113,7 @@ export default async function handler(req, res) {
     const body = parseBody(req);
     if (body?.action === 'rebaseRemaining') return json(res, 200, await rebaseRemaining(body));
     if (body?.action === 'setAutomation') return json(res, 200, await setAutomation(body));
+    if (body?.action === 'pruneMagnateLibrary') return json(res, 200, await pruneMagnateLibrary(body));
     const data = validate(body);
     const now = new Date().toISOString();
     const plan = { version: 1, status: 'draft', createdAt: now, updatedAt: now, ...data, locks: { publishing: true, scheduling: true, permanentStorage: true } };
