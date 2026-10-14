@@ -6,6 +6,7 @@ const ALLOWED_TIMES = new Set(['06:00', '10:00', '14:00', '18:00', '22:00']);
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const HOURS = ['06:00', '10:00', '14:00', '18:00', '22:00'];
 const REBASE_CONFIRMATION = 'Redistribuir fila restante a partir de 2026-10-03 18:00';
+const RESCHEDULE_CONFIRMATION = 'Reorganizar fila restante a partir da data e horario informados.';
 const ACTIVATE_CONFIRMATION = 'Ativar e executar a fila automática Extensize.';
 const PRUNE_MAGNATE_CONFIRMATION = 'Remover biblioteca Magnate e priorizar Dosis de Animo.';
 
@@ -70,6 +71,35 @@ async function rebaseRemaining(body) {
   return { ok: true, active: false, pending: pending.length, first: pending[0] ? { order: pending[0].order, fileName: pending[0].fileName, date: pending[0].date, time: pending[0].time, captionSlot: pending[0].captionSlot } : null, last: pending.at(-1) ? { order: pending.at(-1).order, date: pending.at(-1).date, time: pending.at(-1).time } : null };
 }
 
+async function rescheduleRemaining(body) {
+  if (String(body?.confirmation || '') !== RESCHEDULE_CONFIRMATION) throw new Error('Confirmação inválida.');
+  const startDate = String(body?.startDate || '');
+  const startTime = String(body?.startTime || '');
+  if (!DATE_PATTERN.test(startDate) || !ALLOWED_TIMES.has(startTime)) throw new Error('Data ou horário inicial inválido.');
+  const stored = await get(PLAN_PATH, { access: 'private', storeId: process.env.TOKEN_STORE_ID, useCache: false });
+  if (!stored || stored.statusCode !== 200 || !stored.stream) throw new Error('Plano não encontrado.');
+  const plan = JSON.parse(await new Response(stored.stream).text());
+  const pending = plan.items.filter(item => item.status !== 'published').sort((a, b) => a.order - b.order);
+  const startDay = new Date(`${startDate}T00:00:00Z`);
+  const startIndex = HOURS.indexOf(startTime);
+  pending.forEach((item, index) => {
+    const slot = startIndex + index;
+    const day = new Date(startDay);
+    day.setUTCDate(day.getUTCDate() + Math.floor(slot / HOURS.length));
+    item.date = dateText(day);
+    item.time = HOURS[slot % HOURS.length];
+    item.status = 'draft';
+  });
+  plan.startDate = startDate;
+  plan.endDate = pending.at(-1)?.date || startDate;
+  plan.updatedAt = new Date().toISOString();
+  plan.rescheduledAt = plan.updatedAt;
+  plan.rescheduleRule = { preservePublished: true, preserveOrder: true, firstPendingSlot: `${startDate}T${startTime}:00-03:00` };
+  plan.automation = { active: false, mode: 'prepared', timeZone: 'America/Sao_Paulo', catchUp: { enabled: true, intervalMinutes: 60, maxPerRun: 1, oldestFirst: true } };
+  await put(PLAN_PATH, JSON.stringify(plan), { access: 'private', storeId: process.env.TOKEN_STORE_ID, allowOverwrite: true, addRandomSuffix: false, contentType: 'application/json' });
+  return { ok: true, active: false, published: plan.items.length - pending.length, pending: pending.length, first: pending[0] ? { order: pending[0].order, fileName: pending[0].fileName, date: pending[0].date, time: pending[0].time, captionSlot: pending[0].captionSlot } : null, last: pending.at(-1) ? { order: pending.at(-1).order, date: pending.at(-1).date, time: pending.at(-1).time } : null };
+}
+
 async function setAutomation(body) {
   if (String(body?.confirmation || '') !== ACTIVATE_CONFIRMATION) throw new Error('Confirmação inválida.');
   const stored = await get(PLAN_PATH, { access: 'private', storeId: process.env.TOKEN_STORE_ID, useCache: false });
@@ -112,6 +142,7 @@ export default async function handler(req, res) {
     if (origin && expectedOrigin && origin !== expectedOrigin) return json(res, 403, { ok: false, error: 'Origem não autorizada.' });
     const body = parseBody(req);
     if (body?.action === 'rebaseRemaining') return json(res, 200, await rebaseRemaining(body));
+    if (body?.action === 'rescheduleRemaining') return json(res, 200, await rescheduleRemaining(body));
     if (body?.action === 'setAutomation') return json(res, 200, await setAutomation(body));
     if (body?.action === 'pruneMagnateLibrary') return json(res, 200, await pruneMagnateLibrary(body));
     const data = validate(body);
